@@ -50,6 +50,21 @@
 
 ---
 
+## Screenshots
+
+| Feature | Screenshot |
+|---|---|
+| Upload wizard | ![Upload](img/flatlens-upload.png) |
+| Data preview | ![Preview](img/flatlens-upload-preview.png) |
+| Column config | ![Configure](img/flatlens-upload-configure.png) |
+| Build progress | ![Progress](img/flatlens-upload-proses.png) |
+| Search results | ![Search](img/flatlens-search.png) |
+| Indexes | ![Indexes](img/flatlens-indexes.png) |
+| Aggregations | ![Aggregations](img/flatlens-term-aggregate.png) |
+| Map view | ![Map](img/flatlens-map.png) |
+
+---
+
 ## Installation
 
 Flatlens is bundled with [Flatseek](https://github.com/flatseek/flatseek). Install Flatseek first — the dashboard is included automatically.
@@ -143,6 +158,7 @@ flatlens/
     api.js       # Flatseek API client
   css/
     dashboard.css # Dashboard styles
+  img/           # Screenshots
   logo.svg       # Flatlens logo
   favicon.svg    # Favicon
 ```
