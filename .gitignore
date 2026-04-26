@@ -21,7 +21,9 @@ lib-cov
 # Coverage directory used by tools like istanbul
 coverage
 *.lcov
-
+vercel/
+vercel.json
+.DS_Store
 # nyc test coverage
 .nyc_output
 
@@ -137,3 +139,4 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+.vercel

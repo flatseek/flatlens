@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flatlens Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar" id="sidebar">
+            <a href="/" id="sidebar-brand" class="sidebar-brand">
+                <img src="logo.svg" alt="Flatlens" class="sidebar-logo">
+                <span class="sidebar-brand-text">Flatlens</span>
+            </a>
+
+            <nav class="sidebar-nav" id="main-tabs" aria-label="Primary">
+                <button class="tab active" data-tab="results" title="Search">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                    <span class="nav-label">Search</span>
+                </button>
+                <button class="tab" data-tab="aggregations" title="Aggregations">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7"/><rect x="12" y="7" width="3" height="11"/><rect x="17" y="14" width="3" height="4"/></svg>
+                    <span class="nav-label">Aggregations</span>
+                </button>
+                <button class="tab" data-tab="map" title="Map">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    <span class="nav-label">Map</span>
+                </button>
+                <div class="sidebar-divider"></div>
+                <button class="tab" data-tab="stats" title="Indexes">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/></svg>
+                    <span class="nav-label">Indexes</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="upload-btn" class="upload-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    <span class="nav-label">Upload</span>
+                </button>
+                <button id="cluster-status" class="cluster-status-btn" title="Cluster status"></button>
+                <div class="sidebar-powered" aria-label="Powered by Flatseek">
+                    Powered by
+                    <a href="https://flatseek.io" target="_blank" rel="noopener">Flatseek</a>
+                </div>
+            </div>
+        </aside>
+
+        <div class="app-main">
+            <header class="topbar">
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar" type="button">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <a href="/" class="topbar-brand" aria-label="Flatlens">
+                    <img src="logo.svg" alt="" class="topbar-brand-logo">
+                    <span class="topbar-brand-text">Flatlens</span>
+                </a>
+
+                <div class="toolbar">
+                    <div class="index-selector">
+                        <label>Index</label>
+                        <div class="custom-dropdown" id="index-dropdown">
+                            <button class="dropdown-toggle" id="index-dropdown-btn" type="button">
+                                <span id="index-dropdown-label">Loading...</span>
+                                <svg class="dropdown-arrow" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div class="dropdown-menu" id="index-dropdown-menu"></div>
+                        </div>
+                    </div>
+                    <div class="search-box">
+                        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                        <input type="text" id="search-input" placeholder="Search — e.g. name:john, city:jakarta AND age:[25 TO 35]">
+                        <button id="clear-query-btn" class="secondary-btn hidden" title="Clear query">× Clear</button>
+                        <button id="search-btn">Search</button>
+                        <button id="filter-btn" class="secondary-btn">Filter</button>
+                        <div id="filter-popup" class="filter-popup hidden">
+                            <div class="filter-popup-header">
+                                <h3>Advanced Filter</h3>
+                                <button id="close-filter-popup" class="close-popup">&times;</button>
+                            </div>
+                            <div id="filter-builder">
+                                <div id="filter-list"></div>
+                                <button id="add-filter-btn" class="small-btn" style="margin-top:8px;">+ Add Filter</button>
+                                <div class="filter-query-preview">
+                                    <label>Query:</label>
+                                    <pre id="filter-query-text">*</pre>
+                                </div>
+                                <div class="filter-popup-actions">
+                                    <button id="clear-filter-btn" class="small-btn">Clear</button>
+                                    <button id="apply-filter-btn" class="primary-btn">Apply</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-tags" id="filter-tags"></div>
+                    <div class="toolbar-actions">
+                        <label>Size</label>
+                        <input type="number" id="size-input" value="20" min="1" max="10000">
+                    </div>
+                </div>
+            </header>
+
+            <div id="upload-banner" class="upload-banner hidden" onclick="showIndexProgressModal(currentIndex)">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+                    <circle cx="8" cy="8" r="6" stroke="#B45309" stroke-width="2"/>
+                    <path d="M8 5v3.5l2.5 1.5" stroke="#B45309" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <span id="upload-banner-text" style="flex:1;">Indexing still in progress in background</span>
+                <span id="upload-banner-detail" style="font-size:12px;opacity:0.85;margin-right:10px;"></span>
+                <button class="logs-btn" onclick="event.stopPropagation();showLogsModal(currentIndex)">Logs</button>
+            </div>
+
+            <div class="main-content">
+                <div class="content">
+
+            <!-- Stats panel (shown when Stats tab is active) -->
+            <div id="tab-stats" class="tab-content">
+                <div class="indices-stats-page">
+                    <div id="indices-list-loading" style="display:flex;align-items:center;gap:10px;margin:20px 0;">
+                        <div class="loading-spinner"></div>
+                        <span style="color:var(--text-muted);">Loading indices...</span>
+                    </div>
+                    <div id="indices-list"></div>
+                </div>
+            </div>
+
+            <div id="tab-results" class="tab-content active">
+                <div class="results-info">
+                    <span id="results-total">0</span> hits
+                    <span id="results-took" class="results-meta"></span>
+                    <div id="hidden-columns-tags" class="hidden-columns-tags"></div>
+                </div>
+                <div id="search-chart-container" class="search-chart-container">
+                    <div class="chart-header">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <button id="chart-toggle-btn" class="chart-toggle-btn" title="Toggle chart">▸</button>
+                            <span class="chart-title">Date Distribution</span>
+                        </div>
+                        <div class="date-range-filter">
+                            <select id="chart-field-select"></select>
+                            <select id="chart-mode" class="hidden">
+                                <option value="hourly">Hourly</option>
+                                <option value="daily">Daily</option>
+                            </select>
+                            <label>From:</label>
+                            <input type="date" id="date-from">
+                            <label>To:</label>
+                            <input type="date" id="date-to">
+                            <button id="apply-date-filter" class="small-btn">Apply</button>
+                            <button id="reset-date-filter" class="small-btn secondary">Reset</button>
+                        </div>
+                    </div>
+                    <canvas id="search-chart" style="display:none;"></canvas>
+                </div>
+                <div id="results-table-wrap">
+                    <div id="loading-overlay" class="loading-overlay hidden">
+                        <div class="loading-spinner"></div>
+                        <div id="loading-message" style="margin-top:12px;font-size:13px;color:var(--text-2);text-align:center;max-width:200px;"></div>
+                    </div>
+                    <div id="results-table"></div>
+                </div>
+                <div class="pagination" id="pagination"></div>
+            </div>
+
+            <div id="tab-aggregations" class="tab-content">
+                <div class="agg-form-row">
+                    <div class="agg-form">
+                        <select id="agg-field-tab">
+                            <option value="">Select field...</option>
+                        </select>
+                        <select id="agg-type-tab">
+                            <option value="terms">Terms</option>
+                            <option value="stats">Stats</option>
+                            <option value="date_histogram">Date Histogram</option>
+                            <option value="avg">Avg</option>
+                            <option value="min">Min</option>
+                            <option value="max">Max</option>
+                            <option value="sum">Sum</option>
+                            <option value="cardinality">Cardinality</option>
+                        </select>
+                        <input type="text" id="agg-size-tab" value="10" placeholder="Size">
+                        <button id="run-agg-btn-tab" class="primary-btn small">Run</button>
+                    </div>
+                    <div id="agg-form-actions" class="agg-form-actions hidden">
+                        <div class="agg-view-toggle">
+                            <button class="view-btn active" data-view="both">Both</button>
+                            <button class="view-btn" data-view="table">Table</button>
+                            <button class="view-btn" data-view="chart">Chart</button>
+                        </div>
+                        <div class="agg-type-toggle">
+                            <button class="type-btn" data-type="bar">Bar</button>
+                            <button class="type-btn" data-type="line">Line</button>
+                            <button class="type-btn active" data-type="doughnut">Donut</button>
+                            <button class="type-btn" data-type="pie">Pie</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="agg-scroll-wrap">
+                    <div id="agg-loading-overlay" class="hidden">
+                        <div class="loading-spinner"></div>
+                        <div id="agg-loading-message" style="margin-top:12px;font-size:13px;color:var(--text-2);text-align:center;max-width:200px;"></div>
+                    </div>
+                    <div id="agg-chart-container"><canvas id="agg-chart"></canvas></div>
+                    <div id="agg-results"></div>
+                </div>
+            </div>
+
+            <div id="tab-map" class="tab-content">
+                <div id="map-toolbar" class="map-toolbar">
+                    <div class="map-field-selects">
+                        <select id="map-lat-field"><option value="">Select latitude field...</option></select>
+                        <select id="map-lng-field"><option value="">Select longitude field...</option></select>
+                        <div id="map-combined-field" class="hidden">
+                            <select id="map-combined-latLng"><option value="">Select combined lat,lng field...</option></select>
+                        </div>
+                        <div class="map-size-input">
+                            <label>Size:</label>
+                            <input type="number" id="map-size-input" value="1000" min="1" max="50000">
+                        </div>
+                    </div>
+                    <button id="render-map-btn" class="primary-btn">Show on Map</button>
+                    <span id="map-status" style="font-size: 12px; color: #666;"></span>
+                </div>
+                <div id="map-container" style="display:none;">
+                    <div id="map-view" style="height: 500px; border-radius: 8px;"></div>
+                    <div id="map-info" style="padding: 10px; font-size: 12px; color: #666;"></div>
+                </div>
+                <div id="map-placeholder" style="text-align: center; padding: 60px; color: #999;">
+                    <div style="font-size: 48px; margin-bottom: 15px;">🗺️</div>
+                    <div>Select latitude and longitude fields, then click "Show on Map"</div>
+                </div>
+            </div>
+        </div>
+
+                <!-- Debug Bar -->
+                <div id="debug-bar" class="debug-bar hidden">
+                    <div class="debug-section">
+                        <div class="debug-label">Last Request</div>
+                        <pre id="debug-request"></pre>
+                    </div>
+                    <div class="debug-section">
+                        <div class="debug-label">Last Response</div>
+                        <pre id="debug-response"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="upload-modal" class="modal">
+        <div class="modal-content upload-modal-content wide">
+            <span class="close upload-close">&times;</span>
+            <h2>Upload Documents</h2>
+
+            <!-- Step 1: Select File -->
+            <div class="upload-step" id="step-1">
+                <div class="step-header">
+                    <span class="step-num">1</span>
+                    <h3>Select File</h3>
+                </div>
+                <div class="upload-dropzone" id="dropzone">
+                    <p>Drag & drop files here</p>
+                    <p class="hint">Supports: CSV, JSON, JSONL, XLS, XLSX. Max 500MB per file.</p>
+                    <input type="file" id="file-input" multiple accept=".csv,.json,.jsonl,.xls,.xlsx">
+                    <button id="browse-btn" class="small-btn secondary-btn">Browse Files</button>
+                </div>
+                <div style="text-align:center; margin: 12px 0; color:#999; font-size:13px;">— or —</div>
+                <div style="text-align:center;">
+                    <button id="upload-from-url-btn" class="small-btn" style="background:#115E59;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;">Upload from URL</button>
+                </div>
+                <div id="url-upload-section" class="hidden" style="margin-top:16px; padding:12px; border:1px solid #e5e7eb; border-radius:8px;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input type="url" id="url-input" placeholder="https://example.com/data.csv" style="flex:1; min-width:200px; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                        <input type="text" id="url-index-name" placeholder="index name (optional)" style="width:160px; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                        <select id="url-format-select" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                            <option value="auto">auto</option>
+                            <option value="csv">CSV</option>
+                            <option value="json">JSON</option>
+                            <option value="jsonl">JSONL</option>
+                        </select>
+                        <input type="text" id="url-source-field" placeholder="source field (e.g. _source)" style="width:140px; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                        <button id="url-fetch-btn" class="small-btn" style="background:#0d9488;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Fetch</button>
+                    </div>
+                    <div style="margin-top:6px; font-size:11px; color:#999;">For JSON/JSONL — leave empty to use root. Use <code>_source</code> for Elasticsearch dumps, or <code>data.results</code> for nested paths.</div>
+                    <div id="url-status" style="margin-top:8px; font-size:12px; color:#666;"></div>
+                </div>
+                <div id="file-info" class="file-info"></div>
+            </div>
+
+            <!-- Step 2: Preview & Mapping -->
+            <div class="upload-step hidden" id="step-2">
+                <div class="step-header">
+                    <span class="step-num">2</span>
+                    <h3>Preview & Mapping</h3>
+                    <button id="back-to-step1" class="small-btn">Change File</button>
+                </div>
+
+                <div class="preview-section">
+                    <h4>File Info</h4>
+                    <div id="preview-file-info" class="file-meta"></div>
+                </div>
+
+                <!-- Source field (JSON/JSONL uploads — file or URL) -->
+                <div class="preview-section hidden" id="url-source-field-group">
+                    <h4>Source Field <span class="hint">(extract nested records)</span></h4>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <select id="step2-source-field" style="width:200px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#fff;">
+                            <option value="">Root (no extraction)</option>
+                        </select>
+                        <button id="step2-refetch-btn" class="small-btn" style="background:#0d9488;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;">Apply</button>
+                    </div>
+                    <div style="margin-top:4px;font-size:11px;color:#999;">Choose a key to extract records from. Detected keys shown in dropdown.</div>
+                    <div id="step2-source-status" style="margin-top:6px;font-size:12px;color:#666;"></div>
+                </div>
+
+                <div class="preview-section hidden" id="sheet-select-group">
+                    <h4>Sheet Selection</h4>
+                    <div id="sheet-select-list" class="file-meta"></div>
+                </div>
+
+                <div class="preview-section">
+                    <h4>Sample Data (first 5 rows)</h4>
+                    <div id="preview-table-container" class="table-scroll"></div>
+                </div>
+
+                <div class="preview-section">
+                    <h4>Detected Format & Delimiter</h4>
+                    <div id="preview-format" class="format-info"></div>
+                    <div class="form-group" id="delimiter-group-step2" style="margin-top:8px;">
+                        <label>Separator:</label>
+                        <select id="delimiter-select-step2">
+                            <option value="auto">Auto-detect</option>
+                            <option value=",">Comma (,)</option>
+                            <option value=";">Semicolon (;)</option>
+                            <option value="\t">Tab</option>
+                            <option value="|">Pipe (|)</option>
+                            <option value=":">Colon (:)</option>
+                            <option value="#">Hash (#)</option>
+                        </select>
+                        <button id="reparse-delimiter-btn" class="small-btn secondary-btn" style="margin-left:8px;">Re-parse</button>
+                    </div>
+                    <div class="form-group" id="header-row-group" style="margin-top:8px;">
+                        <label><input type="checkbox" id="has-header-row" checked> First row is header</label>
+                        <span class="hint">Uncheck if file has no header row</span>
+                    </div>
+                    <div class="form-group" style="margin-top:8px;">
+                        <label>Edit Headers (JSON array):</label>
+                        <textarea id="headers-json-edit" rows="2" placeholder='["col1", "col2", "col3"]' style="width:100%;font-family:monospace;font-size:12px;"></textarea>
+                        <button id="apply-headers-json-btn" class="small-btn secondary-btn" style="margin-top:4px;">Apply Headers</button>
+                    </div>
+                    <div class="form-group" id="headers-history-group" style="margin-top:8px;">
+                        <label>Headers History <span class="hint">(from previous uploads)</span>:</label>
+                        <div id="headers-history-list" class="headers-history-list"></div>
+                    </div>
+                </div>
+
+                <div class="preview-section">
+                    <h4>Column Mapping <span class="hint">(click to edit types, set insert name)</span></h4>
+                    <div id="mapping-preview">
+                        <table class="mapping-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:30px;">Exclude</th>
+                                    <th>Column Name</th>
+                                    <th>Insert As</th>
+                                    <th>Type</th>
+                                    <th>Sample Values</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mapping-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div class="form-group" id="columns-mapping-history-group" style="margin-top:8px;">
+                        <label>Mapping History <span class="hint">(from previous uploads)</span>:</label>
+                        <div id="columns-mapping-history-list" class="headers-history-list"></div>
+                    </div>
+                </div>
+
+                <div class="step-actions">
+                    <button id="confirm-mapping-btn" class="primary-btn">Confirm & Continue</button>
+                </div>
+            </div>
+
+            <!-- Step 3: Configure Index -->
+            <div class="upload-step hidden" id="step-3">
+                <div class="step-header">
+                    <span class="step-num">3</span>
+                    <h3>Configure Index</h3>
+                    <button id="back-to-step2" class="small-btn">Edit Mapping</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Upload to:</label>
+                    <select id="upload-target-type">
+                        <option value="new">Create New Index</option>
+                        <option value="existing">Existing Index</option>
+                    </select>
+                </div>
+
+                <div id="upload-new-index-group">
+                    <div class="form-group">
+                        <label>Index Name:</label>
+                        <input type="text" id="upload-index-name" placeholder="my-index">
+                        <span class="hint">Lowercase, letters/numbers/underscore only</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Encrypt Index:</label>
+                        <input type="checkbox" id="encrypt-index">
+                        <span class="hint">Password-protect this index</span>
+                    </div>
+
+                    <div class="form-group" id="encrypt-password-group" style="display:none;">
+                        <label>Index Password:</label>
+                        <input type="password" id="index-password" placeholder="Enter password">
+                    </div>
+                </div>
+
+                <div id="upload-existing-index-group" class="hidden">
+                    <div class="form-group">
+                        <label>Select Index:</label>
+                        <select id="upload-existing-index">
+                            <option value="">Loading...</option>
+                        </select>
+                        <span class="hint" id="existing-index-hint"></span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>ID Field (optional):</label>
+                    <input type="text" id="id-field" placeholder="Leave empty for auto-ID">
+                </div>
+
+                <div class="form-group">
+                    <label>Batch Size:</label>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <select id="batch-size-select">
+                            <option value="500">500 docs/batch</option>
+                            <option value="1000">1000 docs/batch</option>
+                            <option value="2000">2000 docs/batch</option>
+                            <option value="5000" selected>5000 docs/batch</option>
+                            <option value="10000">10000 docs/batch</option>
+                            <option value="custom">Custom...</option>
+                        </select>
+                        <input type="number" id="batch-size-custom" min="1" max="50000"
+                               placeholder="e.g. 3000" style="display:none;width:100px;"/>
+                    </div>
+                </div>
+
+                <div class="step-actions">
+                    <button id="start-upload-btn" class="primary-btn">Start Upload</button>
+                </div>
+            </div>
+
+            <!-- Step 4: Progress -->
+            <div class="upload-step hidden" id="step-4">
+                <div class="step-header">
+                    <span class="step-num">4</span>
+                    <h3>Uploading</h3>
+                </div>
+                <div id="upload-progress" class="upload-progress"></div>
+            </div>
+
+            <!-- Step 5: Done -->
+            <div class="upload-step hidden" id="step-5">
+                <div class="step-header">
+                    <span class="step-num">✓</span>
+                    <h3>Complete</h3>
+                </div>
+                <div id="upload-summary" class="upload-summary"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Mapping Modal -->
+    <div id="edit-mapping-modal" class="modal">
+        <div class="modal-content">
+            <span class="close edit-mapping-close">&times;</span>
+            <h2>Edit Column Type</h2>
+            <div class="form-group">
+                <label>Column:</label>
+                <input type="text" id="edit-col-name">
+            </div>
+            <div class="form-group">
+                <label>Storage Type:</label>
+                <select id="edit-col-type">
+                    <option value="TEXT">TEXT — free text, trigrams + wildcard search</option>
+                    <option value="KEYWORD">KEYWORD — exact match, sortable, aggregatable</option>
+                    <option value="DATE">DATE — date/datetime, range queries</option>
+                    <option value="FLOAT">FLOAT — decimal numbers</option>
+                    <option value="INT">INT — whole numbers</option>
+                    <option value="BOOL">BOOL — true/false, yes/no</option>
+                    <option value="ARRAY">ARRAY — JSON array [a, b, c]</option>
+                    <option value="OBJECT">OBJECT — JSON object {key: value}</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Sample Values:</label>
+                <div id="edit-col-samples" class="sample-values"></div>
+            </div>
+            <button id="save-mapping-btn" class="primary-btn">Save</button>
+        </div>
+    </div>
+
+    <!-- Document Modal -->
+    <div id="doc-modal" class="modal">
+        <div class="modal-content doc-modal-content">
+            <span class="close">&times;</span>
+            <div class="doc-modal-header">
+                <h2>Document Details</h2>
+                <button id="copy-doc-btn" class="small-btn">Copy JSON</button>
+            </div>
+            <div id="doc-modal-body">
+                <pre id="doc-content"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mapping Preview Dialog -->
+    <div id="mapping-modal" class="modal">
+        <div class="modal-content mapping-modal-content">
+            <div class="mapping-modal-header">
+                <h2 id="mapping-modal-title">Index Mapping</h2>
+                <div class="mapping-modal-actions">
+                    <button id="copy-mapping-btn" class="small-btn">Copy JSON</button>
+                    <span class="close mapping-close">&times;</span>
+                </div>
+            </div>
+            <div id="mapping-modal-body">
+                <pre id="mapping-content"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password Modal for Encrypted Index -->
+    <div id="password-modal" class="modal">
+        <div class="modal-content" style="max-width:420px;">
+            <span class="close" onclick="closePasswordModal()">&times;</span>
+            <h2 id="password-modal-title">🔒 Index is Encrypted</h2>
+            <p id="password-modal-desc" style="color:var(--text-muted);font-size:13px;margin:0 0 16px 0;">Enter the passphrase to access this index.</p>
+            <div class="form-group">
+                <label>Passphrase:</label>
+                <input type="password" id="password-modal-input" placeholder="Enter passphrase" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;">
+                <div id="password-modal-error" class="error-msg hidden" style="margin-top:6px;"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+                <button onclick="closePasswordModal()" class="secondary-btn">Cancel</button>
+                <button id="password-modal-submit" class="primary-btn">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Index Progress Modal -->
+    <div id="index-progress-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeIndexProgressModal()">&times;</span>
+            <h2 id="ipm-title">Index Progress</h2>
+            <div id="ipm-content"></div>
+        </div>
+    </div>
+
+    <!-- Index Logs Modal -->
+    <div id="logs-modal" class="modal">
+        <div class="modal-content" style="max-width:560px;max-height:80vh;">
+            <span class="close" onclick="closeLogsModal()">&times;</span>
+            <h2 id="logs-modal-title">Index Logs</h2>
+            <div id="logs-content" style="overflow-y:auto;max-height:60vh;margin-top:8px;"></div>
+        </div>
+    </div>
+
+    <!-- Rename Index Modal -->
+    <div id="rename-modal" class="modal">
+        <div class="modal-content" style="max-width:400px;">
+            <span class="close" onclick="closeRenameModal()">&times;</span>
+            <h2>Rename Index</h2>
+            <p id="rename-current-name" style="color:var(--text-muted);font-size:13px;margin:0 0 16px 0;"></p>
+            <div class="form-group">
+                <label>New name:</label>
+                <input type="text" id="rename-new-name" placeholder="new_index_name" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;">
+                <div id="rename-error" class="error-msg hidden" style="margin-top:6px;"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+                <button onclick="closeRenameModal()" class="secondary-btn">Cancel</button>
+                <button id="rename-submit-btn" class="primary-btn">Rename</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Encrypt/Decrypt Index Modal -->
+    <div id="encrypt-modal" class="modal">
+        <div class="modal-content" style="max-width:420px;">
+            <span class="close" onclick="closeEncryptModal()">&times;</span>
+            <h2 id="encrypt-modal-title">Encrypt Index</h2>
+            <p id="encrypt-modal-desc" style="color:var(--text-muted);font-size:13px;margin:0 0 16px 0;"></p>
+            <div class="form-group">
+                <label>Passphrase:</label>
+                <input type="password" id="encrypt-pass" placeholder="Enter passphrase" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;">
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+                <label>Confirm passphrase:</label>
+                <input type="password" id="encrypt-pass-confirm" placeholder="Re-enter passphrase" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;">
+                <div id="encrypt-error" class="error-msg hidden" style="margin-top:6px;"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+                <button onclick="closeEncryptModal()" class="secondary-btn">Cancel</button>
+                <button id="encrypt-submit-btn" class="primary-btn">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Local dev: points to local flatseek server
+        // In Vercel production, this is overridden by the deployed API URL
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+        window.API_BASE = isLocal
+          ? 'http://localhost:8000'
+          : 'https://api.demo.flatseek.io';
+
+        // Sidebar toggle — mobile drawer + desktop collapse
+        (function () {
+            const shell = document.querySelector('.app-shell');
+            const toggle = document.getElementById('sidebar-toggle');
+            if (!shell || !toggle) return;
+            const MQ = window.matchMedia('(max-width: 900px)');
+            // Restore desktop collapsed state from localStorage
+            try {
+                if (!MQ.matches && localStorage.getItem('flatlens.sidebarCollapsed') === '1') {
+                    shell.classList.add('sidebar-collapsed');
+                }
+            } catch (_) {}
+            toggle.addEventListener('click', () => {
+                if (MQ.matches) {
+                    shell.classList.toggle('sidebar-open');
+                } else {
+                    shell.classList.toggle('sidebar-collapsed');
+                    try {
+                        localStorage.setItem('flatlens.sidebarCollapsed',
+                            shell.classList.contains('sidebar-collapsed') ? '1' : '0');
+                    } catch (_) {}
+                }
+            });
+            // Tap outside to close on mobile
+            document.addEventListener('click', (e) => {
+                if (!MQ.matches) return;
+                if (!shell.classList.contains('sidebar-open')) return;
+                if (e.target.closest('.sidebar') || e.target.closest('#sidebar-toggle')) return;
+                shell.classList.remove('sidebar-open');
+            });
+            // Close mobile drawer after selecting a nav item
+            document.querySelectorAll('.sidebar-nav .tab').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (MQ.matches) shell.classList.remove('sidebar-open');
+                });
+            });
+        })();
+    </script>
+    <script src="js/api.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>
