@@ -1,6 +1,6 @@
 <div align="center">
 
-![Logo](logo.svg)
+<img src="logo.svg" alt="Flatlens" width="64" height="64">
 
 # Flatlens
 
