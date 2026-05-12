@@ -44,6 +44,10 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                     <span class="nav-label">Upload</span>
                 </button>
+                <button id="settings-btn" class="settings-btn" title="Settings / Data Source">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <span class="nav-label">Settings</span>
+                </button>
                 <button id="cluster-status" class="cluster-status-btn" title="Cluster status"></button>
                 <div class="sidebar-powered" aria-label="Powered by Flatseek">
                     Powered by
@@ -575,6 +579,50 @@
         </div>
     </div>
 
+    <!-- Settings / Data Source Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content" style="max-width:480px;">
+            <span class="close settings-close">&times;</span>
+            <h2>⚙️ Settings</h2>
+            <p style="color:var(--text-muted);font-size:13px;margin:0 0 20px 0;">Configure how Flatlens connects to your data source.</p>
+
+            <div class="form-group">
+                <label>Data Source</label>
+                <div style="display:flex;gap:8px;margin-top:6px;">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="radio" name="data-source" value="local" id="ds-local">
+                        <span>Local</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="radio" name="data-source" value="bucket" id="ds-bucket">
+                        <span>Bucket URL</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group" id="bucket-url-group" style="display:none;">
+                <label>Bucket URL</label>
+                <input type="text" id="bucket-url-input" list="bucket-url-suggestions" placeholder="https://huggingface.co/datasets/owner/repo" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;margin-top:6px;">
+                <datalist id="bucket-url-suggestions">
+                    <option value="https://huggingface.co/datasets/flatseek/sample-adsb">
+                    <option value="https://huggingface.co/datasets/flatseek/sample-article">
+                    <option value="https://huggingface.co/datasets/flatseek/sample-encrypted">
+                </datalist>
+                <span class="hint">Supported: HuggingFace datasets, GitHub releases, or direct file URLs</span>
+            </div>
+
+            <div class="form-group" id="api-url-group" style="margin-top:16px;">
+                <label>API Base URL</label>
+                <input type="url" id="api-url-input" placeholder="" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;margin-top:6px;">
+                <span class="hint">The Flatseek API server URL</span>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end;">
+                <button id="settings-save-btn" class="primary-btn">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Rename Index Modal -->
     <div id="rename-modal" class="modal">
         <div class="modal-content" style="max-width:400px;">
@@ -616,13 +664,9 @@
     </div>
 
     <script>
-        // Local dev: points to local flatseek server
-        // In Vercel production, this is overridden by the deployed API URL
-        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
-        window.API_BASE = isLocal
-          ? 'http://localhost:8000'
-          : 'https://api.demo.flatseek.io';
+        // Default API_BASE - will be overridden by dashboard.js applySettingsOnLoad()
+        // based on localStorage and URL params before any API calls are made
+        window.API_BASE = `${window.location.protocol}//${window.location.host}`;
 
         // Sidebar toggle — mobile drawer + desktop collapse
         (function () {

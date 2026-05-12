@@ -265,10 +265,83 @@ window.applyHeadersFromHistory = function(idx) {
     document.getElementById('apply-headers-json-btn').click();
 };
 
+// Apply settings from localStorage/URL params BEFORE any API calls
+function applySettingsOnLoad() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlBucket = urlParams.get('bucket');
+    const urlApi = urlParams.get('api');
+
+    const existingSettings = (function() {
+        try { return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}'); }
+        catch (_) { return {}; }
+    })();
+
+    // Priority: URL param > localStorage > default
+    if (urlApi) {
+        window.API_BASE = urlApi.replace(/\/$/, '');
+    } else if (existingSettings.apiUrl) {
+        window.API_BASE = existingSettings.apiUrl.replace(/\/$/, '');
+    }
+
+    // If URL params are provided on first load, save them as settings (override localStorage)
+    if (urlBucket || urlApi) {
+        const settings = {
+            source: urlBucket ? 'bucket' : (existingSettings.source || 'local'),
+            bucketUrl: urlBucket || existingSettings.bucketUrl || '',
+            apiUrl: urlApi || existingSettings.apiUrl || ''
+        };
+        saveDataSourceSettings(settings);
+    }
+}
+
+// ─── Loading Overlay ──────────────────────────────────────────────────────────
+
+function showLoadingOverlay(text = 'Loading buckets...') {
+    // Remove any existing overlay first
+    hideLoadingOverlay();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'loading-overlay';
+    overlay.style.cssText = `
+        position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;
+        display:flex;align-items:center;justify-content:center;
+        background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);
+    `;
+    overlay.innerHTML = `
+        <div style="text-align:center;padding:40px;">
+            <div class="loading-spinner" style="margin:0 auto 20px;"></div>
+            <div style="color:var(--text-muted);font-size:14px;">${text}</div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+function hideLoadingOverlay() {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) overlay.remove();
+}
+
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-    await loadIndices();
+    applySettingsOnLoad(); // Must run BEFORE any API calls
+
+    // Show loading overlay on first load if bucket URL is set
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlBucket = urlParams.get('bucket');
+    let releaseOverlay = null;
+    if (urlBucket) {
+        releaseOverlay = showLoadingOverlay('Loading buckets...');
+    }
+
+    await loadIndices(() => {
+        // This runs after loadIndices completes (including the inner async operations)
+        if (releaseOverlay) {
+            hideLoadingOverlay();
+        }
+    });
+
     setupEventListeners();
     setupUploadModal();
     setupNavLinks();
@@ -478,7 +551,11 @@ async function checkClusterHealth() {
 function startClusterHealthPolling() {
     if (clusterHealthInterval) clearInterval(clusterHealthInterval);
     checkClusterHealth(); // Run immediately
-    clusterHealthInterval = setInterval(checkClusterHealth, 30000);
+    clusterHealthInterval = setInterval(async () => {
+        // Don't poll when tab is hidden or on mobile to save resources
+        if (document.hidden || window.matchMedia('(max-width: 900px)').matches) return;
+        await checkClusterHealth();
+    }, 30000);
 }
 
 function setupNavLinks() {
@@ -493,9 +570,18 @@ function setupNavLinks() {
 
 let isLoadingIndex = false;
 
-async function loadIndices() {
+async function loadIndices(onAllDone) {
     if (isLoadingIndex) return;
     isLoadingIndex = true;
+
+    let indicesLoaded = false;
+    let allDone = false;
+
+    function maybeAllDone() {
+        if (indicesLoaded && allDone && onAllDone) {
+            onAllDone();
+        }
+    }
 
     try {
         const data = await FlatseekAPI.listIndices();
@@ -518,7 +604,11 @@ async function loadIndices() {
                     try {
                         const info = await FlatseekAPI.isEncrypted(idx);
                         return { idx, encrypted: info.encrypted };
-                    } catch (_) {
+                    } catch (e) {
+                        // 403 = encrypted bucket without password — treat as encrypted
+                        if (e.message && (e.message.includes('403') || e.message.includes('encrypted') || e.message.includes('password'))) {
+                            return { idx, encrypted: true };
+                        }
                         return { idx, encrypted: false };
                     }
                 })
@@ -562,6 +652,9 @@ async function loadIndices() {
         console.error('Failed to load indices:', e);
     } finally {
         isLoadingIndex = false;
+        indicesLoaded = true;
+        allDone = true;
+        maybeAllDone();
     }
 }
 
@@ -5537,13 +5630,20 @@ async function updateSearchUploadBanner() {
 
 function startUploadBannerPolling() {
     if (__uploadBannerInterval) clearInterval(__uploadBannerInterval);
-    __uploadBannerInterval = setInterval(updateSearchUploadBanner, 5000);
+    __uploadBannerInterval = setInterval(() => {
+        // Skip polling if no current index or tab is hidden
+        if (!currentIndex || document.hidden) return;
+        updateSearchUploadBanner();
+    }, 5000);
 }
 
 // Poll to refresh stats badges and reload rows periodically
 function startStatsProgressPolling() {
     if (window.__statsProgressInterval) clearInterval(window.__statsProgressInterval);
     window.__statsProgressInterval = setInterval(async () => {
+        // Skip polling if tab is hidden
+        if (document.hidden) return;
+
         const allData = window.__statsAllData;
         if (!allData || !allData.length) return;
 
@@ -5650,6 +5750,28 @@ async function selectIndex(indexName) {
             }
         }
     } catch (e) {
+        // Check if this is a 403 encrypted error (bucket URL with encrypted data)
+        if (e.message && (e.message.includes('403') || e.message.includes('encrypted') || e.message.includes('password'))) {
+            const pass = await promptForIndexPassword(indexName);
+            if (!pass) {
+                document.getElementById('index-dropdown-label').textContent = indexName;
+                document.getElementById('results-table').innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:14px;">🔒 This index is encrypted.<br><button class="primary-btn" style="margin-top:12px;" onclick="selectIndex('${indexName}')">Enter Password</button></div>`;
+                return;
+            }
+            sessionStorage.setItem('index_password_' + indexName, pass);
+            try {
+                const result = await FlatseekAPI.authenticateIndex(indexName, pass);
+                if (!result || result.authenticated === false) {
+                    sessionStorage.removeItem('index_password_' + indexName);
+                    document.getElementById('results-table').innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:14px;">🔒 This index is encrypted.<br><button class="primary-btn" style="margin-top:12px;" onclick="selectIndex('${indexName}')">Try Again</button></div>`;
+                    return;
+                }
+            } catch (authErr) {
+                sessionStorage.removeItem('index_password_' + indexName);
+                document.getElementById('results-table').innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:14px;">🔒 This index is encrypted.<br><button class="primary-btn" style="margin-top:12px;" onclick="selectIndex('${indexName}')">Try Again</button></div>`;
+                return;
+            }
+        }
         // Not encrypted or check failed — proceed normally
     }
 
@@ -6582,3 +6704,217 @@ function showCreateIndexModal() {
         alert(`Failed to create index: ${e.message}`);
     });
 }
+
+// ── Settings / Data Source Modal ─────────────────────────────────────
+const SETTINGS_STORAGE_KEY = 'flatlens_data_settings';
+
+function getDataSourceSettings() {
+    try {
+        const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return { source: 'local', bucketUrl: '', apiUrl: '' };
+}
+
+function saveDataSourceSettings(settings) {
+    try {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    } catch (_) {}
+}
+
+// Get current API_BASE considering settings
+function getEffectiveApiBase() {
+    const settings = getDataSourceSettings();
+    if (settings.apiUrl) return settings.apiUrl.replace(/\/$/, '');
+    return getApiBase();
+}
+
+// Get bucket parameter for API calls
+function getBucketParam() {
+    const settings = getDataSourceSettings();
+    if (settings.source === 'bucket' && settings.bucketUrl) {
+        return settings.bucketUrl;
+    }
+    return null;
+}
+
+// Intercept API calls to add bucket param
+const _originalRequest = FlatseekAPI.request.bind(FlatseekAPI);
+FlatseekAPI.request = async function(method, endpoint, body = null, requestKey = null) {
+    const bucket = getBucketParam();
+    if (bucket && !endpoint.includes('bucket=')) {
+        const sep = endpoint.includes('?') ? '&' : '?';
+        endpoint = `${endpoint}${sep}bucket=${encodeURIComponent(bucket)}`;
+    }
+
+    // Let api.js handle X-Index-Password header from sessionStorage
+    return _originalRequest(method, endpoint, body, requestKey);
+};
+
+// Override listIndices to pass bucket param
+const _originalListIndices = FlatseekAPI.listIndices.bind(FlatseekAPI);
+FlatseekAPI.listIndices = async function() {
+    const bucket = getBucketParam();
+    if (bucket) {
+        return this.request('GET', `/_indices?bucket=${encodeURIComponent(bucket)}`);
+    }
+    return _originalListIndices();
+};
+
+// Override clusterHealth to pass bucket param
+const _originalClusterHealth = FlatseekAPI.clusterHealth.bind(FlatseekAPI);
+FlatseekAPI.clusterHealth = async function() {
+    const bucket = getBucketParam();
+    if (bucket) {
+        return this.request('GET', `/_cluster/health?bucket=${encodeURIComponent(bucket)}`);
+    }
+    return _originalClusterHealth();
+};
+
+// Override isEncrypted to pass bucket param
+const _originalIsEncrypted = FlatseekAPI.isEncrypted.bind(FlatseekAPI);
+FlatseekAPI.isEncrypted = async function(indexName) {
+    const bucket = getBucketParam();
+    console.log('isEncrypted called, bucket:', bucket);
+    if (bucket) {
+        return this.request('GET', `/${encodeURIComponent(indexName)}/_is_encrypted?bucket=${encodeURIComponent(bucket)}`);
+    }
+    return _originalIsEncrypted(indexName);
+};
+
+// Override authenticateIndex to pass bucket param
+const _originalAuthenticateIndex = FlatseekAPI.authenticateIndex.bind(FlatseekAPI);
+FlatseekAPI.authenticateIndex = async function(indexName, passphrase) {
+    const bucket = getBucketParam();
+    console.log('authenticateIndex called, bucket:', bucket, 'index:', indexName);
+    if (bucket) {
+        const ep = `/${encodeURIComponent(indexName)}/_authenticate?bucket=${encodeURIComponent(bucket)}`;
+        console.log('authenticateIndex calling:', ep, 'body:', { passphrase });
+        const result = await this.request('POST', ep, { passphrase });
+        console.log('authenticateIndex result:', JSON.stringify(result));
+        sessionStorage.setItem('index_password_' + indexName, passphrase);
+        console.log('sessionStorage set:', sessionStorage.getItem('index_password_' + indexName));
+        return result;
+    }
+    return _originalAuthenticateIndex(indexName, passphrase);
+};
+
+// Override other API methods that use custom fetch
+const _originalBulkIndex = FlatseekAPI.bulkIndex.bind(FlatseekAPI);
+FlatseekAPI.bulkIndex = async function(index, docs, extra = {}) {
+    const bucket = getBucketParam();
+    if (bucket) {
+        extra = { ...extra, bucket };
+    }
+    return _originalBulkIndex.call(this, index, docs, extra);
+};
+
+// Settings modal controls
+function initSettingsModal() {
+    const modal = document.getElementById('settings-modal');
+    if (!modal) return;
+
+    // Check URL params for bucket/api defaults (only on first load, before localStorage is set)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlBucket = urlParams.get('bucket');
+    const urlApi = urlParams.get('api');
+
+    // If no localStorage settings yet, check if URL params should populate the settings
+    const existingSettings = (function() {
+        try { return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}'); }
+        catch (_) { return {}; }
+    })();
+
+    // On load, if settings exist in localStorage, apply apiUrl to window.API_BASE
+    if (existingSettings.apiUrl) {
+        window.API_BASE = existingSettings.apiUrl.replace(/\/$/, '');
+    }
+
+    // If settings modal is opened for first time and URL has params, use them
+    const settingsBtn = document.getElementById('settings-btn');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', () => {
+            const settings = getDataSourceSettings();
+            document.getElementById('ds-local').checked = settings.source === 'local';
+            document.getElementById('ds-bucket').checked = settings.source === 'bucket';
+            document.getElementById('bucket-url-input').value = settings.bucketUrl || '';
+            document.getElementById('api-url-input').value = settings.apiUrl || window.API_BASE || '';
+
+            const bucketGroup = document.getElementById('bucket-url-group');
+            if (bucketGroup) bucketGroup.style.display = settings.source === 'bucket' ? 'block' : 'none';
+
+            modal.style.display = 'block';
+        });
+    }
+
+    // Close
+    modal.querySelector('.settings-close').addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.style.display = 'none';
+    });
+
+    // Toggle bucket URL visibility
+    document.querySelectorAll('input[name="data-source"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const bucketGroup = document.getElementById('bucket-url-group');
+            if (bucketGroup) {
+                bucketGroup.style.display = document.getElementById('ds-bucket').checked ? 'block' : 'none';
+            }
+        });
+    });
+
+    // Apply URL params on first load if no saved settings exist
+    if (!existingSettings.source && (urlBucket || urlApi)) {
+        const settings = {
+            source: urlBucket ? 'bucket' : 'local',
+            bucketUrl: urlBucket || '',
+            apiUrl: urlApi || ''
+        };
+        saveDataSourceSettings(settings);
+        if (urlApi) window.API_BASE = urlApi.replace(/\/$/, '');
+    }
+
+    // Save
+    document.getElementById('settings-save-btn').addEventListener('click', async () => {
+        const source = document.getElementById('ds-local').checked ? 'local' : 'bucket';
+        const bucketUrl = document.getElementById('bucket-url-input').value.trim();
+        const apiUrl = document.getElementById('api-url-input').value.trim();
+
+        const releaseOverlay = showLoadingOverlay('Loading buckets...');
+
+        const settings = { source, bucketUrl, apiUrl };
+        saveDataSourceSettings(settings);
+
+        // Update window.API_BASE if apiUrl is provided, otherwise reset to default
+        if (apiUrl) {
+            window.API_BASE = apiUrl.replace(/\/$/, '');
+        } else {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            window.API_BASE = isLocal
+                ? 'http://localhost:8000'
+                : 'https://api.demo.flatseek.io';
+        }
+
+        // Reset current index since data source changed
+        currentIndex = '';
+        currentResults = null;
+        document.getElementById('results-total').textContent = '0';
+        document.getElementById('results-took').textContent = '';
+        document.getElementById('results-table').innerHTML = '';
+        document.getElementById('pagination').innerHTML = '';
+        document.getElementById('index-dropdown-label').textContent = 'Loading...';
+
+        try {
+            await Promise.all([loadIndices(), loadIndicesStats()]);
+        } catch (e) {
+            console.error('Failed to load indices:', e);
+        }
+
+        hideLoadingOverlay();
+    });
+}
+
+// Initialize settings modal on DOM ready
+document.addEventListener('DOMContentLoaded', initSettingsModal);

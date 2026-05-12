@@ -1,10 +1,10 @@
-const API_BASE = (function() {
-    // Runtime config: window.API_BASE > ?api= query param > default
+// getApiBase() checks window.API_BASE dynamically, then ?api= query param, then default
+function getApiBase() {
     if (window.API_BASE) return window.API_BASE;
     const params = new URLSearchParams(window.location.search);
     if (params.has('api')) return params.get('api').replace(/\/$/, '');
     return '__FLATLENS_API_URL__';
-})();
+}
 
 // Track active requests for cancellation
 const activeControllers = {};
@@ -49,7 +49,9 @@ const FlatseekAPI = {
         const idxMatch = endpoint.match(/^\/([^\/]+)/);
         if (idxMatch) {
             const idxName = idxMatch[1];
-            const pw = getIndexPassword(idxName);
+            const pw = sessionStorage.getItem('index_password_' + idxName);
+            const hasBucket = endpoint.includes('bucket=');
+            console.log('api.js request:', method, endpoint, 'pw:', pw ? pw.substring(0,3) + '...' : 'null', 'hasBucket:', hasBucket, 'X-Index-Password header will be set:', pw ? 'YES' : 'NO');
             if (pw) {
                 options.headers['X-Index-Password'] = pw;
             }
@@ -60,7 +62,7 @@ const FlatseekAPI = {
         const requestInfo = { method, endpoint, body };
 
         try {
-            const response = await fetch(`${API_BASE}${endpoint}`, options);
+            const response = await fetch(`${getApiBase()}${endpoint}`, options);
             const text = await response.text();
             let data;
             try {
@@ -156,6 +158,7 @@ const FlatseekAPI = {
         const idxName = idxMatch ? idxMatch[1] : index;
         const pw = getIndexPassword(idxName);
         if (pw) options.headers['X-Index-Password'] = pw;
+        if (extra.bucket) options.headers['X-Bucket'] = extra.bucket;
 
         const controller = new AbortController();
         options.signal = controller.signal;
@@ -163,7 +166,7 @@ const FlatseekAPI = {
 
         let response, data;
         try {
-            response = await fetch(`${API_BASE}/${index}/_bulk`, { ...options, body: JSON.stringify(docs) });
+            response = await fetch(`${getApiBase()}/${index}/_bulk`, { ...options, body: JSON.stringify(docs) });
             const text = await response.text();
             try { data = JSON.parse(text); } catch { data = text; }
         } catch (e) {
@@ -221,7 +224,7 @@ const FlatseekAPI = {
     },
 
     async createMapping(indexName, mapping) {
-        const response = await fetch(`${API_BASE}/${indexName}/_mapping`, {
+        const response = await fetch(`${getApiBase()}/${indexName}/_mapping`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(mapping)

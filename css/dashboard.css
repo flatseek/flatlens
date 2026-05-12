@@ -271,6 +271,19 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .sidebar-footer .upload-btn svg { flex-shrink: 0; }
 
+.settings-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px;
+  font-size: 11.5px; font-weight: 600; letter-spacing: .2px;
+  color: var(--brand-200);
+  background: rgba(16,185,129,0.08);
+  border: 1px solid rgba(52,211,153,0.22);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all .15s var(--e);
+}
+.settings-btn:hover { background: rgba(16,185,129,0.16); color: #fff; }
+
 .cluster-status-btn {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 12px;
@@ -305,6 +318,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .app-shell.sidebar-collapsed .sidebar-nav .tab { justify-content: center; padding: 10px; }
 .app-shell.sidebar-collapsed .sidebar-nav .tab.active::before { top: 6px; bottom: 6px; }
 .app-shell.sidebar-collapsed .sidebar-footer .upload-btn { justify-content: center; padding: 10px; }
+.app-shell.sidebar-collapsed .sidebar-footer .settings-btn { justify-content: center; padding: 8px; }
+.app-shell.sidebar-collapsed .sidebar-footer .settings-btn .nav-label { display: none; }
 .app-shell.sidebar-collapsed .cluster-status-btn { justify-content: center; padding: 8px; }
 .app-shell.sidebar-collapsed .sidebar-powered { display: none; }
 
