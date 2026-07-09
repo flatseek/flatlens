@@ -109,8 +109,10 @@ const FlatseekAPI = {
         return this.request('GET', `/_indices?_=${ts}`);
     },
 
-    async search(index, query = '*', size = 20, fromOffset = 0) {
-        return this.request('POST', `/${index}/_search`, { query, size, from: fromOffset }, `search-${index}`);
+    async search(index, query = '*', size = 20, fromOffset = 0, sort = null) {
+        const body = { query, size, from: fromOffset };
+        if (sort) body.sort = sort;
+        return this.request('POST', `/${index}/_search`, body, `search-${index}`);
     },
 
     async count(index, query = '*') {

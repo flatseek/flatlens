@@ -3562,8 +3562,10 @@ async function runSearch() {
     ensureLoadingOverlay('Searching...');
 
     try {
-        console.log('Running search:', { index: currentIndex, query, pageSize, fromOffset });
-        const results = await FlatseekAPI.search(currentIndex, query, pageSize, fromOffset);
+        // Build sort param from currentSort state
+        const sortParam = currentSort ? `${currentSort.field}:${currentSort.direction}` : null;
+        console.log('Running search:', { index: currentIndex, query, pageSize, fromOffset, sort: sortParam });
+        const results = await FlatseekAPI.search(currentIndex, query, pageSize, fromOffset, sortParam);
         console.log('Search results:', results);
         currentResults = results;
         renderResults(results);
@@ -3604,7 +3606,7 @@ async function runSearch() {
             }
             // Retry search (overlay still showing)
             try {
-                const results = await FlatseekAPI.search(currentIndex, query, pageSize, fromOffset);
+                const results = await FlatseekAPI.search(currentIndex, query, pageSize, fromOffset, sortParam);
                 currentResults = results;
                 renderResults(results);
                 updateResultsInfo(results);
@@ -3816,6 +3818,7 @@ function renderResults(results) {
         const typeClass = isDot ? 'dot-field' : '';
         thHtml += `<th data-field="${escapeHtml(f)}" class="${typeClass}">
             <span class="th-content">${escapeHtml(f)}</span>
+            <button class="sort-col-btn" data-field="${escapeHtml(f)}" title="Sort by this column">↕</button>
             <button class="agg-col-btn" data-field="${escapeHtml(f)}" title="Aggregate this column">∑</button>
             <button class="hide-col-btn" data-field="${escapeHtml(f)}" title="Hide column">×</button>
         </th>`;
@@ -4040,6 +4043,36 @@ function renderResults(results) {
             runAggregation();
         } catch (err) {
             console.error('Error in agg-col-btn handler:', err);
+        }
+    });
+
+    // Add sort column button handlers using event delegation
+    let currentSort = null; // { field, direction }
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.sort-col-btn');
+        if (!btn) return;
+        e.stopPropagation();
+        e.preventDefault();
+        try {
+            const field = btn.dataset.field;
+            // Toggle direction or set new field
+            if (currentSort && currentSort.field === field) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort = { field, direction: 'asc' };
+            }
+            // Update active state on buttons
+            document.querySelectorAll('.sort-col-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.field === currentSort.field);
+                b.textContent = b.dataset.field === currentSort.field
+                    ? (currentSort.direction === 'asc' ? '↑' : '↓')
+                    : '↕';
+            });
+            // Reset to page 0 and re-run search
+            currentPage = 0;
+            runSearch();
+        } catch (err) {
+            console.error('Error in sort-col-btn handler:', err);
         }
     });
 
