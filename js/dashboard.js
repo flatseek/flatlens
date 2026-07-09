@@ -2,6 +2,7 @@ let currentIndex = '';
 let currentResults = null;
 let currentPage = 0;
 let pageSize = 20;
+let currentSort = null; // { field, direction } — set by sort column buttons
 let visibleColumns = null; // null = all visible
 let hiddenColumns = []; // tracks columns user has hidden
 let columnSelectionChanged = false; // true after user first interacts with column selector
@@ -4047,7 +4048,6 @@ function renderResults(results) {
     });
 
     // Add sort column button handlers using event delegation
-    let currentSort = null; // { field, direction }
     document.addEventListener('click', (e) => {
         const btn = e.target.closest('.sort-col-btn');
         if (!btn) return;
