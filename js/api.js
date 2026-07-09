@@ -3,7 +3,9 @@ function getApiBase() {
     if (window.API_BASE) return window.API_BASE;
     const params = new URLSearchParams(window.location.search);
     if (params.has('api')) return params.get('api').replace(/\/$/, '');
-    return '__FLATLENS_API_URL__';
+    // Dynamic fallback: local dev uses localhost:8000, production uses api.demo.flatseek.io
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    return isLocal ? 'http://localhost:8000' : 'https://api.demo.flatseek.io';
 }
 
 // Track active requests for cancellation
@@ -93,12 +95,18 @@ const FlatseekAPI = {
         Object.keys(activeControllers).forEach(k => delete activeControllers[k]);
     },
 
+    async root() {
+        return this.request('GET', '/');
+    },
+
     async clusterHealth() {
         return this.request('GET', '/_cluster/health');
     },
 
     async listIndices() {
-        return this.request('GET', '/_indices');
+        // Add timestamp to prevent browser caching stale indices after API URL change
+        const ts = Date.now();
+        return this.request('GET', `/_indices?_=${ts}`);
     },
 
     async search(index, query = '*', size = 20, fromOffset = 0) {

@@ -17,6 +17,7 @@
             <a href="/" id="sidebar-brand" class="sidebar-brand">
                 <img src="logo.svg" alt="Flatlens" class="sidebar-logo">
                 <span class="sidebar-brand-text">Flatlens</span>
+                <span class="sidebar-brand-version" id="flatlens-version">v0.1.1</span>
             </a>
 
             <nav class="sidebar-nav" id="main-tabs" aria-label="Primary">
@@ -41,7 +42,6 @@
 
             <div class="sidebar-footer">
                 <button id="upload-btn" class="upload-btn">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                     <span class="nav-label">Upload</span>
                 </button>
                 <button id="settings-btn" class="settings-btn" title="Settings / Data Source">
@@ -49,9 +49,17 @@
                     <span class="nav-label">Settings</span>
                 </button>
                 <button id="cluster-status" class="cluster-status-btn" title="Cluster status"></button>
+                <button id="datasource-indicator" class="cluster-status-btn datasource-indicator settings-btn" title="Current data source">
+                    <svg class="ds-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <ellipse cx="8" cy="3.5" rx="6" ry="2.5" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M2 3.5v3c0 1.38 2.686 2.5 6 2.5s6-1.12 6-2.5v-3" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M2 9v3c0 1.38 2.686 2.5 6 2.5s6-1.12 6-2.5V9" stroke="currentColor" stroke-width="1.5"/>
+                        <ellipse cx="8" cy="12" rx="6" ry="2.5" stroke="currentColor" stroke-width="1.5"/>
+                    </svg>
+                    <span id="ds-label">Datasource: local</span>
+                </button>
                 <div class="sidebar-powered" aria-label="Powered by Flatseek">
-                    Powered by
-                    <a href="https://flatseek.io" target="_blank" rel="noopener">Flatseek</a>
+                    Powered by <a href="https://flatseek.io" target="_blank" rel="noopener" id="api-version-link">Flatseek</a> <span id="api-version">—</span>
                 </div>
             </div>
         </aside>
@@ -106,6 +114,10 @@
                     <div class="toolbar-actions">
                         <label>Size</label>
                         <input type="number" id="size-input" value="20" min="1" max="10000">
+                        <button class="primary-btn" id="export-btn" type="button" onclick="openExportModal()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Export
+                        </button>
                     </div>
                 </div>
             </header>
@@ -663,10 +675,70 @@
         </div>
     </div>
 
+    <!-- Export Modal -->
+    <div id="export-modal" class="modal">
+        <div class="modal-content" style="max-width:400px;">
+            <span class="close" onclick="closeExportModal()">&times;</span>
+            <h2>Export Results</h2>
+            <div class="form-group" style="margin-top:16px;">
+                <label>Format</label>
+                <div style="display:flex;gap:8px;margin-top:6px;">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="radio" name="export-format" value="jsonl" id="export-format-jsonl">
+                        <span>JSONL</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="radio" name="export-format" value="csv" id="export-format-csv">
+                        <span>CSV</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="radio" name="export-format" value="xlsx" id="export-format-xlsx" checked>
+                        <span>XLSX</span>
+                    </label>
+                </div>
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+                <label>Scope</label>
+                <div style="display:flex;gap:8px;margin-top:6px;">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="radio" name="export-scope" value="current" id="export-scope-current" checked>
+                        <span>Current page (<span id="export-current-count">0</span> rows)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input type="radio" name="export-scope" value="all" id="export-scope-all">
+                        <span>All results (<span id="export-total-count">0</span> total)</span>
+                    </label>
+                </div>
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+                <label>Rows per fetch (for "All results")</label>
+                <input type="number" id="export-rpp" value="500" min="100" max="10000" step="100"
+                       style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;margin-top:6px;">
+                <span class="hint">Higher = faster export, more memory</span>
+            </div>
+            <div id="export-progress" class="hidden" style="margin-top:12px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                    <div class="loading-spinner" style="width:14px;height:14px;flex-shrink:0;"></div>
+                    <span id="export-progress-text" style="color:var(--text-muted);font-size:13px;">Preparing...</span>
+                </div>
+                <div id="export-progress-bar-wrap" style="background:var(--surface-2);border-radius:4px;height:6px;overflow:hidden;">
+                    <div id="export-progress-bar" style="height:100%;background:var(--primary);width:0%;transition:width .2s ease;border-radius:4px;"></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+                <button onclick="closeExportModal()" class="secondary-btn">Cancel</button>
+                <button id="export-download-btn" class="primary-btn" onclick="doExportWithDialog()">Download</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Default API_BASE - will be overridden by dashboard.js applySettingsOnLoad()
         // based on localStorage and URL params before any API calls are made
-        window.API_BASE = `${window.location.protocol}//${window.location.host}`;
+        // For production flatlens.demo, use the hosted API; for local dev, use localhost:8000
+        window.API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:8000'
+            : 'https://api.demo.flatseek.io';
 
         // Sidebar toggle — mobile drawer + desktop collapse
         (function () {

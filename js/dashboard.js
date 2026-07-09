@@ -127,9 +127,12 @@ function getExcludedColumns(indexName) {
     if (!indexName) return [];
     try {
         const raw = localStorage.getItem(EXCLUDED_COLUMNS_KEY_PREFIX + indexName);
-        return raw ? JSON.parse(raw) : [];
+        const stored = raw ? JSON.parse(raw) : [];
+        // Always exclude _source by default
+        if (!stored.includes('_source')) stored.push('_source');
+        return stored;
     } catch (e) {
-        return [];
+        return ['_source'];
     }
 }
 
@@ -296,12 +299,13 @@ function applySettingsOnLoad() {
 
 // ─── Loading Overlay ──────────────────────────────────────────────────────────
 
-function showLoadingOverlay(text = 'Loading buckets...') {
+function showLoadingOverlay(text = 'Loading...') {
     // Remove any existing overlay first
     hideLoadingOverlay();
 
     const overlay = document.createElement('div');
     overlay.id = 'loading-overlay';
+    overlay.className = ''; // Clear any hidden class
     overlay.style.cssText = `
         position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;
         display:flex;align-items:center;justify-content:center;
@@ -310,7 +314,7 @@ function showLoadingOverlay(text = 'Loading buckets...') {
     overlay.innerHTML = `
         <div style="text-align:center;padding:40px;">
             <div class="loading-spinner" style="margin:0 auto 20px;"></div>
-            <div style="color:var(--text-muted);font-size:14px;">${text}</div>
+            <div class="loading-message" style="color:var(--text-muted);font-size:14px;">${text}</div>
         </div>
     `;
     document.body.appendChild(overlay);
@@ -319,7 +323,35 @@ function showLoadingOverlay(text = 'Loading buckets...') {
 
 function hideLoadingOverlay() {
     const overlay = document.getElementById('loading-overlay');
-    if (overlay) overlay.remove();
+    if (overlay) {
+        // Remove from DOM completely to avoid stale state
+        overlay.remove();
+    }
+}
+
+// Ensure small centered spinner overlay
+function ensureLoadingOverlay(text = 'Searching...') {
+    let overlay = document.getElementById('loading-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'loading-overlay';
+        overlay.style.cssText = `
+            position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+            z-index:1000;padding:16px 24px;
+            background:rgba(255,255,255,0.95);border-radius:8px;
+            box-shadow:0 2px 12px rgba(0,0,0,0.1);display:flex;align-items:center;gap:10px;
+        `;
+        overlay.innerHTML = `
+            <div class="loading-spinner" style="width:16px;height:16px;flex-shrink:0;"></div>
+            <div class="loading-message" style="color:var(--text);font-size:13px;white-space:nowrap;">${text}</div>
+        `;
+        document.body.appendChild(overlay);
+    } else {
+        overlay.classList.remove('hidden');
+        const msgEl = overlay.querySelector('.loading-message');
+        if (msgEl) msgEl.textContent = text;
+    }
+    return overlay;
 }
 
 document.addEventListener('DOMContentLoaded', init);
@@ -352,6 +384,21 @@ async function init() {
     setupMapTab();
     initURLState();
     setupChartAutoHide();
+
+    // Fetch API version for sidebar footer
+    try {
+        const info = await FlatseekAPI.root();
+        console.log('API root info:', info);
+        const apiVersion = info?.version || '';
+        const el = document.getElementById('api-version');
+        if (el && apiVersion) el.textContent = 'v' + apiVersion;
+    } catch (e) {
+        console.error('Failed to fetch API version:', e);
+    }
+
+    // Update datasource indicator
+    updateDatasourceIndicator();
+
     // Auto-detect logo home: /dashboard → /dashboard, otherwise → /
     const brandLink = document.getElementById('sidebar-brand');
     if (brandLink) {
@@ -637,6 +684,9 @@ async function loadIndices(onAllDone) {
             });
 
             currentIndex = defaultIndex;
+            // Always exclude _source by default on first load (before user changes column selection)
+            hiddenColumns = ['_source'];
+            columnSelectionChanged = true; // force filter to apply on first load
 
             // Toggle dropdown on button click
             document.getElementById('index-dropdown-btn').addEventListener('click', (e) => {
@@ -670,6 +720,7 @@ function setupEventListeners() {
         }
     });
 
+    // Export button opens modal directly
     document.getElementById('search-input').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             currentPage = 0;
@@ -688,6 +739,7 @@ function setupEventListeners() {
         clearFilterTags();
         currentPage = 0;
         updateClearButtonVisibility();
+        ensureLoadingOverlay('Searching...');
         runSearch();
         if (window.updateURL) window.updateURL();
     });
@@ -3502,10 +3554,12 @@ async function runSearch() {
     const query = document.getElementById('search-input').value || '*';
     const fromOffset = currentPage * pageSize;
 
-    const overlay = document.getElementById('loading-overlay');
-    const msgEl = document.getElementById('loading-message');
-    if (msgEl) msgEl.textContent = 'Searching...';
-    overlay?.classList.remove('hidden');
+    // Clear any previous error message
+    const resultsTable = document.getElementById('results-table');
+    if (resultsTable) resultsTable.innerHTML = '';
+
+    // Show small centered loading spinner
+    ensureLoadingOverlay('Searching...');
 
     try {
         console.log('Running search:', { index: currentIndex, query, pageSize, fromOffset });
@@ -3523,6 +3577,10 @@ async function runSearch() {
             populateMapFields(); // Refresh map fields with combined field detection
         }
     } catch (e) {
+        // Ignore AbortError — request was cancelled by a new search or index switch
+        if (e.name === 'AbortError' || e.message?.includes('aborted')) {
+            return;
+        }
         console.error('Search error:', e);
         // If 403 encrypted error, prompt for password
         if (e.message.includes('403') || e.message.includes('encrypted')) {
@@ -3544,8 +3602,7 @@ async function runSearch() {
                 showError('Invalid passphrase.');
                 return;
             }
-            // Retry search
-            overlay?.classList.remove('hidden');
+            // Retry search (overlay still showing)
             try {
                 const results = await FlatseekAPI.search(currentIndex, query, pageSize, fromOffset);
                 currentResults = results;
@@ -3560,8 +3617,7 @@ async function runSearch() {
             showError(`Search failed: ${e.message}`);
         }
     } finally {
-        overlay?.classList.add('hidden');
-        if (msgEl) msgEl.textContent = '';
+        hideLoadingOverlay();
     }
     updateSearchUploadBanner();
 }
@@ -3843,6 +3899,31 @@ function renderResults(results) {
             html += `<td class="data-cell${isEmpty ? ' empty-cell' : ''}" data-field="${escapeHtml(f)}" data-value="${displayVal}">${displayVal}</td>`;
         });
         html += '</tr>';
+
+        // Hidden columns expandable row - show collapsed hidden column values
+        if (hiddenColumns.length > 0 && hit._source) {
+            const hiddenValues = hiddenColumns.filter(c => {
+                const v = hit._source[c];
+                return v !== null && v !== undefined && v !== '';
+            });
+            if (hiddenValues.length > 0) {
+                const hiddenRowId = `doc-hidden-${i}`;
+                const hiddenDetailId = `doc-hidden-detail-${i}`;
+                html += `<tr class="hidden-cols-toggle" data-hidden-row="${hiddenRowId}" data-hidden-detail="${hiddenDetailId}">`;
+                html += `<td colspan="${fieldArray.length + 1}" style="padding:2px 8px;border:none;background:transparent;">`;
+                html += `<button class="hidden-cols-btn" onclick="toggleHiddenCols(this,'${hiddenRowId}','${hiddenDetailId}')" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0;text-align:left;">`;
+                html += `<span class="hidden-cols-icon">▶</span> +${hiddenValues.length} hidden column${hiddenValues.length > 1 ? 's' : ''}</button>`;
+                html += `</td></tr>`;
+                html += `<tr class="hidden-cols-detail hidden" id="${hiddenDetailId}"><td colspan="${fieldArray.length + 1}" style="padding:4px 8px;border:none;">`;
+                html += `<div style="display:flex;flex-wrap:wrap;gap:8px;">`;
+                hiddenValues.forEach(c => {
+                    const v = hit._source[c];
+                    const vStr = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                    html += `<span style="font-size:11px;color:var(--text-muted);"><b>${escapeHtml(c)}</b>: ${escapeHtml(vStr)}</span>`;
+                });
+                html += `</div></td></tr>`;
+            }
+        }
         // Expanded detail row - filter out array items and object parents
         // Build set of keys that are parents (have children paths) AND their child dot-paths
         const parentKeys = new Set();
@@ -4002,6 +4083,13 @@ function renderResults(results) {
         });
     });
 
+    // Hidden columns toggle
+    document.querySelectorAll('.hidden-cols-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    });
+
     // Filter button on cell hover
     document.querySelectorAll('.data-cell').forEach(cell => {
         cell.addEventListener('mouseenter', () => {
@@ -4042,6 +4130,23 @@ function renderResults(results) {
     }
 }
 
+function toggleHiddenCols(btn, hiddenRowId, hiddenDetailId) {
+    const hiddenRow = document.getElementById(hiddenRowId);
+    const hiddenDetail = document.getElementById(hiddenDetailId);
+    const icon = btn.querySelector('.hidden-cols-icon');
+    if (!hiddenDetail) return;
+    if (hiddenDetail.classList.contains('hidden')) {
+        // Collapse all other hidden cols first
+        document.querySelectorAll('.hidden-cols-detail').forEach(r => r.classList.add('hidden'));
+        document.querySelectorAll('.hidden-cols-icon').forEach(i => i.textContent = '▶');
+        hiddenDetail.classList.remove('hidden');
+        if (icon) icon.textContent = '▼';
+    } else {
+        hiddenDetail.classList.add('hidden');
+        if (icon) icon.textContent = '▶';
+    }
+}
+
 function renderPagination(results) {
     const total = results.hits?.total || 0;
     const totalPages = Math.ceil(total / pageSize);
@@ -4071,11 +4176,8 @@ window.goToPage = function(page) {
     if (page >= totalPages) return;
 
     currentPage = page;
-    // Show full-table loading overlay during pagination
-    const overlay = document.getElementById('loading-overlay');
-    const msgEl = document.getElementById('loading-message');
-    if (msgEl) msgEl.textContent = 'Loading page ' + (page + 1) + '...';
-    overlay?.classList.remove('hidden');
+    // Show loading overlay during pagination
+    ensureLoadingOverlay('Loading page ' + (page + 1) + '...');
     runSearch();
     if (window.updateURL) window.updateURL();
 };
@@ -5538,7 +5640,7 @@ async function loadIndicesStats() {
     }
 
     try {
-        const data = await FlatseekAPI.request('GET', '/_indices');
+        const data = await FlatseekAPI.request('GET', '/_indices?_=' + Date.now());
         const indices = data.indices || [];
 
         if (indices.length === 0) {
@@ -5640,12 +5742,31 @@ function startUploadBannerPolling() {
 // Poll to refresh stats badges and reload rows periodically
 function startStatsProgressPolling() {
     if (window.__statsProgressInterval) clearInterval(window.__statsProgressInterval);
+
+    // Skip polling for remote buckets - stats don't change and HTTP requests are expensive
+    const settings = getDataSourceSettings();
+    if (settings.source === 'bucket' && settings.bucketUrl) {
+        console.log('[stats] Skipping stats polling for remote bucket');
+        return; // Don't poll remote buckets - data doesn't change and each poll is expensive
+    }
+
     window.__statsProgressInterval = setInterval(async () => {
         // Skip polling if tab is hidden
         if (document.hidden) return;
 
         const allData = window.__statsAllData;
         if (!allData || !allData.length) return;
+
+        // Skip polling if ANY index is a remote bucket (expensive HTTP stats call)
+        const hasRemoteBucket = allData.some(item => {
+            // Check if this item's stats indicate it's a remote bucket (very large doc count, no local storage)
+            const stats = item.stats || {};
+            return stats.store && stats.store.size_bytes === 0 && stats.docs && stats.docs.count > 0;
+        });
+        if (hasRemoteBucket) {
+            console.log('[stats] Skipping poll - remote bucket detected');
+            return;
+        }
 
         // Re-fetch all index stats to update badges (Running/Upload/Interrupted)
         const items = await Promise.all(allData.map(async (item) => {
@@ -5675,6 +5796,13 @@ function clearIndexDefault() {
 }
 
 async function selectIndex(indexName) {
+    // Cancel all pending requests to prevent stale results / double searches
+    FlatseekAPI.cancelAll();
+
+    // Show full-screen loading when switching indices
+    showLoadingOverlay('Loading...');
+    let _showingPasswordModal = false;
+
     // Stop stats progress polling when navigating away
     if (window.__statsProgressInterval) clearInterval(window.__statsProgressInterval);
     if (window.__statsAutoRefresh) clearInterval(window.__statsAutoRefresh);
@@ -5726,11 +5854,15 @@ async function selectIndex(indexName) {
     document.getElementById('pagination').innerHTML = '';
 
     // Check if index is encrypted — always prompt for password (no stale cache)
+    // Wrapped in try/finally so the loading overlay is always cleaned up on error
     try {
         const encInfo = await FlatseekAPI.isEncrypted(indexName);
         if (encInfo.encrypted) {
+            _showingPasswordModal = true;
             const pass = await promptForIndexPassword(indexName);
+            _showingPasswordModal = false;
             if (!pass) {
+                hideLoadingOverlay();
                 document.getElementById('index-dropdown-label').textContent = indexName;
                 document.getElementById('results-table').innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:14px;">🔒 This index is encrypted.<br><button class="primary-btn" style="margin-top:12px;" onclick="selectIndex('${indexName}')">Enter Password</button></div>`;
                 return;
@@ -5752,8 +5884,11 @@ async function selectIndex(indexName) {
     } catch (e) {
         // Check if this is a 403 encrypted error (bucket URL with encrypted data)
         if (e.message && (e.message.includes('403') || e.message.includes('encrypted') || e.message.includes('password'))) {
+            _showingPasswordModal = true;
             const pass = await promptForIndexPassword(indexName);
+            _showingPasswordModal = false;
             if (!pass) {
+                hideLoadingOverlay();
                 document.getElementById('index-dropdown-label').textContent = indexName;
                 document.getElementById('results-table').innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:14px;">🔒 This index is encrypted.<br><button class="primary-btn" style="margin-top:12px;" onclick="selectIndex('${indexName}')">Enter Password</button></div>`;
                 return;
@@ -5775,10 +5910,14 @@ async function selectIndex(indexName) {
         // Not encrypted or check failed — proceed normally
     }
 
-    await loadMapping();
-    loadQuickFilters();
-    runSearch();
-    startUploadBannerPolling();
+    try {
+        await loadMapping();
+        loadQuickFilters();
+        runSearch();
+        startUploadBannerPolling();
+    } finally {
+        if (!_showingPasswordModal) hideLoadingOverlay();
+    }
     // Switch to results tab — rely on .active class, no inline display hacks
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -5800,6 +5939,7 @@ let _passwordResolve_func = null;
 function promptForIndexPassword(indexName) {
     return new Promise((resolve) => {
         _passwordResolve_func = resolve;
+        hideLoadingOverlay(); // Hide full-screen loading before showing password modal
         document.getElementById('password-modal-title').textContent = `🔒 "${indexName}" is Encrypted`;
         document.getElementById('password-modal-desc').textContent = `Enter the passphrase to access this index.`;
         document.getElementById('password-modal-input').value = '';
@@ -6327,7 +6467,7 @@ async function resumeUpload(indexName) {
     document.getElementById('upload-new-index-group').classList.add('hidden');
     document.getElementById('upload-existing-index-group').classList.remove('hidden');
     try {
-        const data = await FlatseekAPI.request('GET', '/_indices');
+        const data = await FlatseekAPI.request('GET', '/_indices?_=' + Date.now());
         const existingSelect = document.getElementById('upload-existing-index');
         existingSelect.innerHTML = data.indices
             .map(idx => `<option value="${escapeHtml(idx)}" ${idx === indexName ? 'selected' : ''}>${escapeHtml(idx)}</option>`)
@@ -6709,11 +6849,57 @@ function showCreateIndexModal() {
 const SETTINGS_STORAGE_KEY = 'flatlens_data_settings';
 
 function getDataSourceSettings() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlBucket = urlParams.get('bucket');
+    const urlApi = urlParams.get('api');
+
+    let saved = null;
     try {
-        const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
-        if (saved) return JSON.parse(saved);
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (raw) saved = JSON.parse(raw);
     } catch (_) {}
-    return { source: 'local', bucketUrl: '', apiUrl: '' };
+
+    const existing = saved || { source: 'local', bucketUrl: '', apiUrl: '' };
+
+    // URL param takes priority. Fall back to localStorage for bucket source.
+    if (urlBucket) {
+        return { source: 'bucket', bucketUrl: urlBucket, apiUrl: urlApi || existing.apiUrl || '' };
+    }
+    // Use localStorage (from Settings save), or default to local
+    return { source: existing.source || 'local', bucketUrl: existing.bucketUrl || '', apiUrl: urlApi || existing.apiUrl || '' };
+}
+
+function updateDatasourceIndicator() {
+    const label = document.getElementById('ds-label');
+    const icon = document.querySelector('.ds-icon');
+    if (!label) return;
+
+    let saved = null;
+    try {
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (raw) saved = JSON.parse(raw);
+    } catch (_) {}
+
+    const settings = saved || { source: 'local', bucketUrl: '', apiUrl: '' };
+
+    if (settings.source === 'bucket' && settings.bucketUrl) {
+        try {
+            const u = new URL(settings.bucketUrl);
+            const parts = u.pathname.split('/').filter(Boolean);
+            const idx = parts.indexOf('datasets');
+            if (idx >= 0 && parts[idx + 2]) {
+                label.textContent = 'Datasource: ' + parts.slice(idx + 1, idx + 3).join('/');
+            } else {
+                label.textContent = 'Datasource: ' + u.hostname.replace('huggingface.co', 'hf');
+            }
+        } catch (_) {
+            label.textContent = 'Datasource: bucket';
+        }
+        if (icon) icon.style.color = '#60A5FA';
+    } else {
+        label.textContent = 'Datasource: local';
+        if (icon) icon.style.color = '';
+    }
 }
 
 function saveDataSourceSettings(settings) {
@@ -6834,6 +7020,7 @@ function initSettingsModal() {
     const settingsBtn = document.getElementById('settings-btn');
     if (settingsBtn) {
         settingsBtn.addEventListener('click', () => {
+            updateDatasourceIndicator();
             const settings = getDataSourceSettings();
             document.getElementById('ds-local').checked = settings.source === 'local';
             document.getElementById('ds-bucket').checked = settings.source === 'bucket';
@@ -6882,10 +7069,13 @@ function initSettingsModal() {
         const bucketUrl = document.getElementById('bucket-url-input').value.trim();
         const apiUrl = document.getElementById('api-url-input').value.trim();
 
+        // Close modal first, then show loading over the main page
+        modal.style.display = 'none';
         const releaseOverlay = showLoadingOverlay('Loading buckets...');
 
         const settings = { source, bucketUrl, apiUrl };
         saveDataSourceSettings(settings);
+        updateDatasourceIndicator();
 
         // Update window.API_BASE if apiUrl is provided, otherwise reset to default
         if (apiUrl) {
@@ -6896,6 +7086,20 @@ function initSettingsModal() {
                 ? 'http://localhost:8000'
                 : 'https://api.demo.flatseek.io';
         }
+
+        // Make bucket sticky in URL for cross-navigation persistence
+        const url = new URL(window.location.href);
+        if (bucketUrl) {
+            url.searchParams.set('bucket', bucketUrl);
+        } else {
+            url.searchParams.delete('bucket');
+        }
+        if (apiUrl) {
+            url.searchParams.set('api', apiUrl);
+        } else {
+            url.searchParams.delete('api');
+        }
+        window.history.replaceState({}, '', url.toString());
 
         // Reset current index since data source changed
         currentIndex = '';
@@ -6914,6 +7118,247 @@ function initSettingsModal() {
 
         hideLoadingOverlay();
     });
+}
+
+// ─── Export Results ───────────────────────────────────────────────────────────
+function openExportModal() {
+    const results = currentResults;
+    if (!results || !results.hits) {
+        alert('No results to export. Run a search first.');
+        return;
+    }
+    const total = results.hits.total || 0;
+    const currentCount = results.hits.hits ? results.hits.hits.length : (Array.isArray(results.hits) ? results.hits.length : 0);
+    document.getElementById('export-current-count').textContent = currentCount;
+    document.getElementById('export-total-count').textContent = typeof total === 'object' ? (total.value || 0) : (total || 0);
+    document.getElementById('export-progress').classList.add('hidden');
+    document.getElementById('export-download-btn').disabled = false;
+    // Reset progress bar
+    const progressBar = document.getElementById('export-progress-bar');
+    if (progressBar) progressBar.style.width = '0%';
+    const progressText = document.getElementById('export-progress-text');
+    if (progressText) { progressText.textContent = 'Preparing...'; progressText.style.color = ''; }
+    document.getElementById('export-modal').style.display = 'block';
+}
+
+function closeExportModal() {
+    const progressEl = document.getElementById('export-progress');
+    progressEl.classList.add('hidden');
+    document.getElementById('export-download-btn').disabled = false;
+    document.getElementById('export-modal').style.display = 'none';
+}
+
+function setExportProgress(percent, text) {
+    const progressBar = document.getElementById('export-progress-bar');
+    const progressText = document.getElementById('export-progress-text');
+    if (progressBar) progressBar.style.width = percent + '%';
+    if (progressText) progressText.textContent = text;
+}
+
+async function doExportWithDialog() {
+    const format = document.querySelector('input[name="export-format"]:checked').value;
+    const scope = document.querySelector('input[name="export-scope"]:checked').value;
+    const progressEl = document.getElementById('export-progress');
+    const downloadBtn = document.getElementById('export-download-btn');
+    downloadBtn.disabled = true;
+    progressEl.classList.remove('hidden');
+    setExportProgress(0, 'Preparing...');
+
+    try {
+        let hits;
+        if (scope === 'current') {
+            // Use current page results
+            hits = getCurrentHits();
+            if (hits.length === 0) {
+                alert('No results to export.');
+                closeExportModal();
+                return;
+            }
+            setExportProgress(100, `Exporting ${hits.length} rows...`);
+            await new Promise(r => setTimeout(r, 50));
+            exportResultsData(hits, format);
+            closeExportModal();
+        } else {
+            // Fetch ALL results
+            const total = currentResults?.hits?.total;
+            const totalVal = typeof total === 'object' ? (total.value || 0) : (total || 0);
+            if (totalVal === 0) {
+                alert('No results to export.');
+                closeExportModal();
+                return;
+            }
+            setExportProgress(0, `Fetching all ${totalVal} results...`);
+            const allHits = await fetchAllResults(totalVal, (fetched, total) => {
+                const pct = Math.round((fetched / total) * 100);
+                const rpp = parseInt(document.getElementById('export-rpp')?.value) || 500;
+                setExportProgress(pct, `Fetching ${fetched} - ${Math.min(fetched + rpp, total)} of ${total}...`);
+            });
+            setExportProgress(95, `Exporting ${allHits.length} rows...`);
+            await new Promise(r => setTimeout(r, 50));
+            exportResultsData(allHits, format);
+            closeExportModal();
+        }
+    } catch (e) {
+        setExportProgress(0, 'Export failed: ' + e.message);
+        document.getElementById('export-progress-text').style.color = 'var(--danger)';
+        downloadBtn.disabled = false;
+    }
+}
+
+function getCurrentHits() {
+    const results = currentResults;
+    if (!results || !results.hits) return [];
+    if (results.hits && results.hits.hits) return results.hits.hits;
+    if (Array.isArray(results.hits)) return results.hits;
+    if (results.documents && Array.isArray(results.documents)) return results.documents;
+    if (results._source && Array.isArray(results._source)) return results._source.map(d => ({ _source: d }));
+    return [];
+}
+
+async function fetchAllResults(totalCount, progressCallback) {
+    const allHits = [];
+    const BATCH = parseInt(document.getElementById('export-rpp')?.value) || 500;
+    const query = document.getElementById('search-input')?.value || '*';
+    for (let offset = 0; offset < totalCount; offset += BATCH) {
+        if (progressCallback) progressCallback(offset, totalCount);
+        const res = await FlatseekAPI.search(currentIndex, query, BATCH, offset);
+        const batch = res.hits && res.hits.hits ? res.hits.hits : (Array.isArray(res.hits) ? res.hits : []);
+        if (batch.length === 0) break;
+        allHits.push(...batch);
+    }
+    return allHits;
+}
+
+function exportResultsData(hits, format) {
+    // Get visible columns (same logic as renderResults - use hiddenColumns)
+    const allFields = new Set();
+    hits.forEach(h => {
+        if (h._source) Object.keys(h._source).forEach(k => allFields.add(k));
+    });
+    const cols = [...allFields].filter(c => c !== '_source' && !hiddenColumns.includes(c));
+    if (cols.length === 0 && hits.length > 0 && hits[0]._source) {
+        cols.push(...Object.keys(hits[0]._source).filter(c => c !== '_source'));
+    }
+
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '');
+    const filename = `${currentIndex || 'export'}_${timestamp}.${format}`;
+
+    if (format === 'jsonl') {
+        const lines = hits.map(h => JSON.stringify(h._source || h));
+        downloadFile(lines.join('\n'), filename, 'application/jsonl');
+    } else if (format === 'csv') {
+        const header = cols.join(',');
+        const rows = hits.map(h => {
+            return cols.map(c => {
+                const val = h._source ? h._source[c] : h[c];
+                if (val === null || val === undefined) return '';
+                const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            }).join(',');
+        });
+        downloadFile([header, ...rows].join('\n'), filename, 'text/csv');
+    } else if (format === 'xlsx') {
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX library not loaded');
+            return;
+        }
+        const wsData = [cols];
+        hits.forEach(h => {
+            const row = cols.map(c => {
+                const val = h._source ? h._source[c] : h[c];
+                return val !== undefined ? val : '';
+            });
+            wsData.push(row);
+        });
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Results');
+        XLSX.writeFile(wb, filename);
+    }
+}
+
+function exportResults(format) {
+    const results = currentResults;
+    if (!results || !results.hits) {
+        alert('No results to export');
+        return;
+    }
+
+    // Extract hits
+    let hits = [];
+    if (results.hits && results.hits.hits) hits = results.hits.hits;
+    else if (Array.isArray(results.hits)) hits = results.hits;
+    else if (results.documents && Array.isArray(results.documents)) hits = results.documents;
+    else if (results._source && Array.isArray(results._source)) hits = results._source.map(d => ({ _source: d }));
+
+    if (hits.length === 0) {
+        alert('No results to export');
+        return;
+    }
+
+    // Get visible columns (same logic as renderResults)
+    const visibleCols = new Set();
+    hits.forEach(h => {
+        if (!h._source) return;
+        Object.keys(h._source).forEach(k => visibleCols.add(k));
+    });
+
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '');
+    const filename = `${currentIndex || 'export'}_${timestamp}.${format}`;
+
+    if (format === 'jsonl') {
+        const lines = hits.map(h => JSON.stringify(h._source || h));
+        downloadFile(lines.join('\n'), filename, 'application/jsonl');
+    } else if (format === 'csv') {
+        const cols = [...visibleCols].filter(c => c !== '_source');
+        const header = cols.join(',');
+        const rows = hits.map(h => {
+            return cols.map(c => {
+                const val = h._source ? h._source[c] : h[c];
+                if (val === null || val === undefined) return '';
+                const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                // Escape quotes and wrap in quotes if contains comma/quote/newline
+                if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            }).join(',');
+        });
+        downloadFile([header, ...rows].join('\n'), filename, 'text/csv');
+    } else if (format === 'xlsx') {
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX library not loaded');
+            return;
+        }
+        const cols = [...visibleCols].filter(c => c !== '_source');
+        const wsData = [cols];
+        hits.forEach(h => {
+            const row = cols.map(c => {
+                const val = h._source ? h._source[c] : h[c];
+                return val !== undefined ? val : '';
+            });
+            wsData.push(row);
+        });
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Results');
+        XLSX.writeFile(wb, filename);
+    }
+}
+
+function downloadFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 // Initialize settings modal on DOM ready

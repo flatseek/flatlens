@@ -181,6 +181,11 @@ input, select, textarea { font: inherit; color: inherit; }
   -webkit-text-fill-color: transparent;
   white-space: nowrap; overflow: hidden;
 }
+.sidebar-brand-version {
+  font-size: 9px; font-weight: 500;
+  color: rgba(255,255,255,0.25);
+  margin-left: 2px;
+}
 
 .sidebar-nav {
   display: flex; flex-direction: column;
@@ -252,6 +257,10 @@ input, select, textarea { font: inherit; color: inherit; }
   transition: color .15s var(--e);
 }
 .sidebar-powered a:hover { color: #fff; }
+#api-version-link { color: var(--brand-300, #6EE7B7); }
+#api-version-link:hover { color: #fff; }
+#flatlens-version-link { color: var(--accent-300, #93C5FD); }
+#flatlens-version-link:hover { color: #fff; }
 .sidebar-footer .upload-btn {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px;
@@ -309,10 +318,22 @@ input, select, textarea { font: inherit; color: inherit; }
   0%, 100% { opacity: 1; }
   50%      { opacity: .55; }
 }
+.datasource-indicator {
+  width: 100%;
+  text-align: left;
+}
+.datasource-indicator::before { display: none !important; }
+.datasource-indicator .ds-icon {
+  width: 8px; height: 8px; flex-shrink: 0;
+  color: var(--brand-200);
+}
+.app-shell.sidebar-collapsed .datasource-indicator { justify-content: center; padding: 7px 4px; }
+.app-shell.sidebar-collapsed .datasource-indicator #ds-label { display: none; }
 
 /* Sidebar collapsed (desktop mini mode) */
 .app-shell.sidebar-collapsed .sidebar { width: var(--sb-w-mini); padding: 14px 8px 10px; }
 .app-shell.sidebar-collapsed .sidebar-brand { justify-content: center; padding: 8px 0 18px; }
+.app-shell.sidebar-collapsed .sidebar-brand-version { display: none; }
 .app-shell.sidebar-collapsed .sidebar-brand-text,
 .app-shell.sidebar-collapsed .nav-label { display: none; }
 .app-shell.sidebar-collapsed .sidebar-nav .tab { justify-content: center; padding: 10px; }
@@ -496,6 +517,47 @@ input, select, textarea { font: inherit; color: inherit; }
 .custom-dropdown .dropdown-item.selected { background: var(--accent-light); color: var(--primary); font-weight: 600; }
 .custom-dropdown .dropdown-item.empty { color: var(--text-dim); font-style: italic; cursor: default; }
 .custom-dropdown .dropdown-item.empty:hover { background: transparent; }
+
+/* ─── Export dropdown (clean & narrow) ────────────────────────────── */
+#export-dropdown { flex-shrink: 0; }
+#export-dropdown .dropdown-toggle {
+  min-width: unset;
+  width: auto;
+  padding: 0 12px;
+  height: 36px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-sm);
+  box-shadow: 0 2px 6px rgba(15,118,110,0.2);
+}
+#export-dropdown .dropdown-toggle:hover {
+  background: var(--primary-dark);
+  box-shadow: 0 4px 12px rgba(15,118,110,0.28);
+}
+#export-dropdown .dropdown-toggle svg:first-child {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+#export-dropdown .dropdown-menu {
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: var(--r-sm);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  padding: 4px;
+  min-width: unset;
+}
+#export-dropdown .dropdown-item {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  border: none !important;
+  border-radius: var(--r-xs);
+}
+#export-dropdown .dropdown-item + .dropdown-item {
+  margin-top: 2px;
+}
 
 /* ─── Filter tags & popup ────────────────────────────────────────── */
 .filter-tags {
@@ -726,6 +788,10 @@ input, select, textarea { font: inherit; color: inherit; }
 #results-table tr.doc-row:hover td { background: var(--accent-light); }
 #results-table td.row-num { text-align: center; color: var(--text-dim); font-size: 11px; }
 #results-table .expand-icon { font-size: 9px; margin-right: 4px; color: var(--primary); }
+#results-table .hidden-cols-btn { background: none; border: none; cursor: pointer; font-size: 11px; padding: 0; text-align: left; color: var(--primary); }
+#results-table .hidden-cols-btn:hover { text-decoration: underline; }
+#results-table .hidden-cols-icon { font-size: 9px; margin-right: 4px; }
+#results-table .hidden-cols-detail td { padding: 4px 8px; background: var(--surface-2); border-radius: 0 0 var(--r-sm) var(--r-sm); }
 #results-table .doc-detail td { padding: 10px; background: var(--surface-2); }
 #results-table .doc-json-wrap { position: relative; }
 #results-table .doc-detail pre.doc-json {
