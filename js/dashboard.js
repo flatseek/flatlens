@@ -5769,7 +5769,7 @@ function startUploadBannerPolling() {
         // Skip polling if no current index or tab is hidden
         if (!currentIndex || document.hidden) return;
         updateSearchUploadBanner();
-    }, 5000);
+    }, 30000);
 }
 
 // Poll to refresh stats badges and reload rows periodically
