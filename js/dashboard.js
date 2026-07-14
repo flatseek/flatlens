@@ -5737,7 +5737,8 @@ let __uploadBannerInterval = null;
 async function updateSearchUploadBanner() {
     const banner = document.getElementById('upload-banner');
     if (!banner) return;
-    if (!currentIndex) { banner.classList.add('hidden'); return; }
+    // Skip API call if banner is already hidden or no index selected
+    if (!currentIndex || banner.classList.contains('hidden')) return;
     try {
         const s = await FlatseekAPI.stats(currentIndex);
         if (s.in_upload) {
