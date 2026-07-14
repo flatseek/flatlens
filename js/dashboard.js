@@ -5815,7 +5815,7 @@ function startStatsProgressPolling() {
         window.__statsAllData = items;
         const currentPage = window.__statsPage || 1;
         _renderStatsPage(currentPage);
-    }, 5000);
+    }, 30000);
 }
 
 function setIndexAsDefault(indexName) {
